@@ -193,7 +193,7 @@ async fn handle_installation() -> Result<(), Error> {
     //   return promise;
 }
 
-async fn handle_session<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
+async fn handle_session(req: &WriteRequest) -> Result<(), Error> {
     if req.class_name != "_Session" {
         return Ok(());
     }
@@ -258,7 +258,7 @@ async fn handle_session<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
     Ok(())
 }
 
-async fn validate_auth_data<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
+async fn validate_auth_data(req: &WriteRequest) -> Result<(), Error> {
     if req.class_name != "_User" {
         return Ok(());
     }
@@ -301,7 +301,7 @@ async fn validate_auth_data<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> 
     //   throw new Parse.Error(Parse.Error.UNSUPPORTED_SERVICE, 'This authentication method is unsupported.');
 }
 
-async fn run_before_save_trigger<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
+async fn run_before_save_trigger(req: &WriteRequest) -> Result<(), Error> {
     Ok(())
 }
 
@@ -315,7 +315,7 @@ async fn transform_user() {}
 
 async fn expand_files_for_existing_objects() {}
 
-async fn destroy_uplicated_sessions<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
+async fn destroy_uplicated_sessions(req: &WriteRequest) -> Result<(), Error> {
     if req.class_name != "_Session" || req.query.is_some() {
         return Ok(());
     }
@@ -337,7 +337,7 @@ async fn destroy_uplicated_sessions<'a>(req: &'a WriteRequest<'a>) -> Result<(),
 
 async fn run_database_operation() {}
 
-async fn create_session_token_if_needed<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
+async fn create_session_token_if_needed(req: &WriteRequest) -> Result<(), Error> {
     if req.class_name != "_User" {
         return Ok(());
       } // Don't generate session for updating user (this.query is set) unless authData exists
@@ -371,7 +371,7 @@ async fn run_after_save_trigger() {}
 
 // }
 
-pub async fn write<'a>(req: &'a WriteRequest<'a>) -> Result<(), Error> {
+pub async fn write(req: &WriteRequest) -> Result<(), Error> {
     // let acl = util::get_acl(request).await?;
     // util::validate_class_creation(request).await?;
     handle_installation().await?;

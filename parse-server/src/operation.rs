@@ -28,18 +28,12 @@ pub struct GetRequest {
     pub join: Vec<Join>,
 }
 
-pub struct FindOptions {
+pub struct FindRequest {
     pub filter: Option<Document>,
     pub limit: Option<i64>,
     pub skip: Option<i64>,
     pub sort: Option<Document>,
     pub join: Vec<Join>,
-    pub include: Vec<String>,
-}
-
-pub struct FindRequest {
-    pub filters: Option<Document>,
-    pub options: FindOptions,
 }
 
 pub struct CreateRequest {
@@ -112,7 +106,7 @@ fn enforce_role_security(req: &Operation) -> Result<(), Error> {
     if req.class == "_Installation" && !req.user.is_master {
         match req.request {
             Request::Delete(_) | Request::Find(_) => {
-                let message = format!("Clients aren't allowed to perform the {:?} operation on the installation collection.", req.request);
+                let message = format!("Clients aren't allowed to perform the {} operation on the installation collection.", "req.request");
                 error!("{}", message);
                 return Err(Error::Forbidden(message));
             }
@@ -123,23 +117,24 @@ fn enforce_role_security(req: &Operation) -> Result<(), Error> {
     if !req.user.is_master && MASTER_ONLY_ACCESS.contains(&req.class)  {
         let message = format!(
             "Clients aren't allowed to perform the {} operation on the {} collection.",
-            req.operation, req.class_name
+            "req.operation", req.class
         );
         error!("{}", message);
         return Err(Error::Forbidden(message));
     }
 
-    if req.auth.is_read_only
-        && (req.operation == OperationType::Delete
-            || req.operation == OperationType::Create
-            || req.operation == OperationType::Update)
-    {
-        let message = format!(
-            "read-only masterKey isn't allowed to perform the {} operation.",
-            req.operation
-        );
-        error!("{}", message);
-        return Err(Error::Forbidden(message));
+    match req.request {
+        Request::Delete(_) | Request::Create(_) | Request::Update(_) => {
+            if req.user.is_read_only {
+                let message = format!(
+                    "read-only masterKey isn't allowed to perform the {} operation.",
+                    "req.operation"
+                );
+                error!("{}", message);
+                return Err(Error::Forbidden(message));
+            }
+        }
+        _ => {}
     }
 
     Ok(())
