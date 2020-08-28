@@ -11,7 +11,6 @@ lazy_static! {
         set.insert("_Idempotency");
         set
     };
-
     pub static ref SYSTEM_CLASSES: HashSet<&'static str> = {
         let mut set = HashSet::new();
         set.insert("_User");

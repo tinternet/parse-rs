@@ -359,17 +359,12 @@ async fn run_after_find_trigger(req: &Request) -> Result<(), Error> {
     // if req.class_name != "_User" {
     //     return Ok(());
     //   } // Don't generate session for updating user (this.query is set) unless authData exists
-    
-    
     //   if req.query.is_some() && !req.data.contains_key("authData") {
     //     return Ok(());
     //   } // Don't generate new sessionToken if linking via sessionToken
-    
-    
     //   if req.auth.user.is_some() && req.data.contains_key("authData") {
     //     return Ok(());
     //   }
-    
     //   if (!this.storage['authProvider'] && // signup call, with
     //   this.config.preventLoginWithUnverifiedEmail && // no login without verification
     //   this.config.verifyUserEmails) {
@@ -396,8 +391,8 @@ pub async fn read(req: Request, ctx: Context) -> Result<(), Error> {
     replace_select(&req, &ctx).await?; // TODO
     replace_dont_select(&req, &ctx).await?; // TODO
     replace_in_query(&req, &ctx).await?; // TODO
-    // replace_not_query().await?; // TODO
-    // replace_equality().await?; // TODO
+                                         // replace_not_query().await?; // TODO
+                                         // replace_equality().await?; // TODO
 
     // handle_include_all().await?;
     // handle_exclude_keys().await?;
@@ -407,4 +402,3 @@ pub async fn read(req: Request, ctx: Context) -> Result<(), Error> {
     run_after_find_trigger(&req).await?;
     Ok(())
 }
-  

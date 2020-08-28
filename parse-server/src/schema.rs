@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use mongodb::bson::Bson;
+use std::collections::HashMap;
 
 #[derive(Clone)]
 pub enum FieldType {

@@ -2,18 +2,18 @@ use crate::cache::AppCache;
 use crate::constants::{MASTER_ONLY_ACCESS, SYSTEM_CLASSES};
 use crate::database::DbAdapter;
 use crate::error::Error;
-use crate::user::User;
 use crate::read::read;
+use crate::user::User;
 use crate::write::write;
+use bson::Document;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use bson::Document;
 
 pub struct Context {
     pub class: String,
     pub user: User,
     pub db: Arc<DbAdapter>,
-    pub cache: Arc<AppCache>
+    pub cache: Arc<AppCache>,
 }
 
 pub enum Request {
@@ -57,7 +57,7 @@ pub struct Join {
     pub options: FindRequest,
 }
 
-pub struct Relation { 
+pub struct Relation {
     pub relation_key: String,
     pub relation_type: String,
     pub filters: Option<Document>,
@@ -112,7 +112,7 @@ fn enforce_role_security(req: &Request, ctx: &Context) -> Result<(), Error> {
         }
     }
 
-    if !ctx.user.is_master && MASTER_ONLY_ACCESS.contains(ctx.class.as_str())  {
+    if !ctx.user.is_master && MASTER_ONLY_ACCESS.contains(ctx.class.as_str()) {
         let message = format!(
             "Clients aren't allowed to perform the {} operation on the {} collection.",
             "ctx.operation", ctx.class

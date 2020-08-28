@@ -1,5 +1,5 @@
+use bson::Bson;
 use std::collections::VecDeque;
-use bson::{Bson};
 
 fn find(mut path: VecDeque<&str>, value: &'static Bson) -> Option<&'static Bson> {
     let doc = match value {
@@ -8,7 +8,7 @@ fn find(mut path: VecDeque<&str>, value: &'static Bson) -> Option<&'static Bson>
     };
     let current_key = match path.pop_front() {
         Some(key) => key,
-        None => return Some(value)
+        None => return Some(value),
     };
     doc.get(current_key).and_then(|x| find(path, x))
 }

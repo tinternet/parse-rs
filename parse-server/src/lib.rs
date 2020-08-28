@@ -4,19 +4,19 @@ extern crate log;
 extern crate lazy_static;
 
 pub use actix_web;
-use actix_web::{middleware, App, HttpServer, web::Data};
+use actix_web::{middleware, web::Data, App, HttpServer};
 
-mod schema;
 mod database;
 mod error;
+mod schema;
 mod user;
 // mod api;
 mod cache;
-mod operation;
-mod util;
-mod read;
-mod write;
 mod constants;
+mod operation;
+mod read;
+mod util;
+mod write;
 // mod config;
 // mod handlers;
 mod rest;

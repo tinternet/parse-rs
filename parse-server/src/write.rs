@@ -337,24 +337,19 @@ async fn run_database_operation() {}
 async fn create_session_token_if_needed(req: &Request, ctx: &Context) -> Result<(), Error> {
     if ctx.class != "_User" {
         return Ok(());
-      } // Don't generate session for updating user (this.query is set) unless authData exists
-    
-    
-    //   if req.query.is_some() && !req.data.contains_key("authData") {
-    //     return Ok(());
-    //   } // Don't generate new sessionToken if linking via sessionToken
-    
-    
-    //   if req.auth.user.is_some() && req.data.contains_key("authData") {
-    //     return Ok(());
-    //   }
-    
-    //   if (!this.storage['authProvider'] && // signup call, with
-    //   this.config.preventLoginWithUnverifiedEmail && // no login without verification
-    //   this.config.verifyUserEmails) {
-    //     // verification is on
-    //     return; // do not create the session token in that case!
-    //   }
+    } // Don't generate session for updating user (this.query is set) unless authData exists
+      //   if req.query.is_some() && !req.data.contains_key("authData") {
+      //     return Ok(());
+      //   } // Don't generate new sessionToken if linking via sessionToken
+      //   if req.auth.user.is_some() && req.data.contains_key("authData") {
+      //     return Ok(());
+      //   }
+      //   if (!this.storage['authProvider'] && // signup call, with
+      //   this.config.preventLoginWithUnverifiedEmail && // no login without verification
+      //   this.config.verifyUserEmails) {
+      //     // verification is on
+      //     return; // do not create the session token in that case!
+      //   }
     Ok(())
     // TODO:
     //   return this.createSessionToken();

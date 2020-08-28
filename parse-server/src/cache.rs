@@ -1,9 +1,8 @@
-use std::sync::{RwLock, RwLockReadGuard, Arc};
-use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::collections::HashMap;
 use crate::schema;
 use crate::user::User;
+use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::RwLock;
 
 pub type Schema = HashMap<String, schema::Schema>;
 pub type Sessions = HashMap<String, User>;
@@ -19,7 +18,7 @@ impl AppCache {
         AppCache {
             schema: RwLock::new(HashMap::new()),
             schema_loaded: AtomicBool::from(false),
-            sessions: RwLock::new(HashMap::new())
+            sessions: RwLock::new(HashMap::new()),
         }
     }
 

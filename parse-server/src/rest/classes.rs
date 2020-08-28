@@ -1,5 +1,5 @@
 use actix_web::{post, web, HttpRequest, HttpResponse};
-use bson::{Bson, Document, doc};
+use bson::{doc, Bson, Document};
 
 use crate::cache::AppCache;
 use crate::database::DbAdapter;
@@ -12,11 +12,11 @@ fn parse_sort(payload: &Document) -> Option<Document> {
     if order == "" {
         None
     } else if &order[0..1] == "-" && &order[0..1] != "" {
-        let mut doc = doc!{};
+        let mut doc = doc! {};
         doc.insert(&order[1..], -1);
         Some(doc)
     } else if &order[0..1] != "" {
-        let mut doc = doc!{};
+        let mut doc = doc! {};
         doc.insert(order, 1);
         Some(doc)
     } else {
@@ -60,7 +60,7 @@ fn parse_filters(filter: &Document) -> Option<Document> {
             Bson::Document(value) => map_filter(key, value),
             _ => (key.clone(), value.clone()),
         })
-        .fold(doc!{}, |mut doc, (key, value)| {
+        .fold(doc! {}, |mut doc, (key, value)| {
             doc.insert(key, value);
             doc
         });
@@ -69,7 +69,7 @@ fn parse_filters(filter: &Document) -> Option<Document> {
 
 fn map_join(doc: &Document) -> Result<Join, Error> {
     let key = doc.get("key").and_then(|x| x.as_str()).unwrap_or("");
-    let empty = doc!{};
+    let empty = doc! {};
     let query = doc.get_document("key").unwrap_or(&empty);
     let class_name = query.get_str("className").unwrap_or("");
     let filter = query.get_document("where");
@@ -94,7 +94,7 @@ fn map_join(doc: &Document) -> Result<Join, Error> {
 
 fn parse_joins(filter: &Document) -> Result<Vec<Join>, Error> {
     let mut result = Vec::new();
-    let empty = doc!{};
+    let empty = doc! {};
     for join in filter
         .iter()
         .filter_map(|(_, value)| value.as_document())
@@ -116,20 +116,34 @@ fn parse_joins(filter: &Document) -> Result<Vec<Join>, Error> {
 fn parse_user(payload: &Document) -> User {
     User {
         id: None,
-        application_id: payload.get_str("_ApplicationId").ok().map(|x| x.to_string()),
-        installation_id: payload.get_str("_InstallationId").ok().map(|x| x.to_string()),
+        application_id: payload
+            .get_str("_ApplicationId")
+            .ok()
+            .map(|x| x.to_string()),
+        installation_id: payload
+            .get_str("_InstallationId")
+            .ok()
+            .map(|x| x.to_string()),
         is_master: false,
         is_read_only: false,
         user: None,
         user_roles: vec![],
-        client_sdk: payload.get_str("_ClientVersion").ok().map(|x| x.to_string()),
+        client_sdk: payload
+            .get_str("_ClientVersion")
+            .ok()
+            .map(|x| x.to_string()),
     }
 }
 
 fn parse_find_request(payload: &Document) -> Result<Request, Error> {
     Ok(Request::Find(FindRequest {
         filter: payload.get_document("where").ok().map(|x| x.clone()),
-        include: payload.get_str("include").unwrap_or("").split(",").map(|x| x.to_string()).collect(),
+        include: payload
+            .get_str("include")
+            .unwrap_or("")
+            .split(",")
+            .map(|x| x.to_string())
+            .collect(),
         limit: payload.get_i64("limit").ok().map(|x| x.clone()),
         skip: payload.get_i64("skip").ok().map(|x| x.clone()),
         sort: parse_sort(&payload),
