@@ -9,7 +9,10 @@
 
 #[parse_server::actix_web::main]
 async fn main() -> std::io::Result<()> {
-    std::env::set_var("RUST_LOG", "actix_server=info,actix_web=info,parse_server=trace");
+    std::env::set_var(
+        "RUST_LOG",
+        "actix_server=info,actix_web=info,parse_server=trace",
+    );
     env_logger::init();
     parse_server::run().await
 }

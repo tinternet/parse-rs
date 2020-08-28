@@ -4,6 +4,8 @@ extern crate log;
 extern crate lazy_static;
 
 pub use actix_web;
+// pub use bson;
+
 use actix_web::{middleware, web::Data, App, HttpServer};
 
 mod database;
