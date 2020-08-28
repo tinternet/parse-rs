@@ -1,0 +1,12 @@
+[package]
+name = "parse-mongo"
+version = "0.1.0"
+authors = ["Alex Seferinkin <alexandar.seferinkin@softwaregroup.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+parse-server = { path = "../parse-server", features = ["mongo-db"] }
+env_logger = "*"
+actix-web = "3.0.0-beta.3"
