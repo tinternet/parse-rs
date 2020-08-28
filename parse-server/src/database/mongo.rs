@@ -1,23 +1,18 @@
-use bson::{Bson, Document};
+use crate::error::Error;
+use crate::operation::{Context, FindRequest, Join};
+use crate::schema::{Field, FieldType, Permissions, Schema};
+use bson::{doc, Document};
 use chrono::DateTime;
 use chrono::SecondsFormat;
 use chrono::Utc;
 use futures::future::join_all;
 use futures::stream::StreamExt;
-use mongodb::bson::doc;
 use mongodb::Database;
 use mongodb::{options::ClientOptions, Client};
 use std::collections::HashMap;
-use std::sync::RwLockReadGuard;
-
-use crate::cache::AppCache;
-// use crate::document::{FindOptions, Join};
-use crate::error::Error;
-use crate::operation::{Operation, ReadOptions, Join};
-use crate::schema::{Field, FieldType, Permissions, Schema};
 
 #[derive(Clone)]
-pub struct Adapter {
+pub struct DbAdapter {
     db: Database,
 }
 
@@ -27,13 +22,13 @@ impl From<mongodb::error::Error> for Error {
     }
 }
 
-impl Adapter {
-    pub async fn connect() -> Adapter {
+impl DbAdapter {
+    pub async fn connect() -> DbAdapter {
         let client_options = ClientOptions::parse("mongodb://192.168.254.111:27017/rust-parse")
             .await
             .unwrap();
         let client = Client::with_options(client_options).unwrap();
-        Adapter {
+        DbAdapter {
             db: client.database("rust-parse"),
         }
     }
@@ -62,18 +57,19 @@ impl Adapter {
 
     pub async fn query_objects(
         &self,
-        req: &Operation,
+        req: &FindRequest,
+        ctx: &Context,
     ) -> Result<Vec<bson::Document>, Error> {
-        let documents = query_objects(&self.db, req).await?;
+        let documents = query_objects(&self.db, req, ctx).await?;
 
         let futures = documents
             .into_iter()
-            .map(|doc| join_pointers(&self.db, doc, req));
+            .map(|doc| join_pointers(&self.db, doc, req, ctx));
 
         Ok(join_all(futures)
             .await
             .into_iter()
-            .filter_map(|x| x)
+            .filter_map(|x| x.ok())
             .collect())
     }
 }
@@ -181,7 +177,6 @@ fn parse_indexes(data: &bson::Document) -> HashMap<String, bool> {
 
 fn parse_document(data: &bson::Document, schema: &Schema) -> bson::Document {
     let mut document = bson::Document::new();
-    let schema = cache.schema.read().expect("RwLock poisoned");
     for (_, field) in &schema.fields {
         match field.field_type {
             FieldType::Pointer => {
@@ -259,25 +254,27 @@ fn parse_document(data: &bson::Document, schema: &Schema) -> bson::Document {
     document
 }
 
-async fn query_objects(db: &Database, req: &Operation) -> Result<Vec<bson::Document>, Error> {
-    info!("Fetching objects for {}", req.class_name);
+async fn query_objects(
+    db: &Database,
+    req: &FindRequest,
+    ctx: &Context,
+) -> Result<Vec<bson::Document>, Error> {
+    info!("Fetching objects for {}", ctx.class);
 
-    let schema = match req.cache.get_schema(&req.class_name) {
+    let schema = match ctx.cache.get_schema(&ctx.class) {
         Some(schema) => schema,
-        None => return Ok(vec![])
+        None => return Ok(vec![]),
     };
 
-    let default_options = ReadOptions::new();
-    let read_options = req.read_options.as_ref().unwrap_or(&default_options);
-    let collection = db.collection(&req.class_name);
+    let collection = db.collection(&ctx.class);
     let find_options = mongodb::options::FindOptions::builder()
-        .limit(read_options.limit)
-        .sort(read_options.sort.clone())
-        .skip(read_options.skip.clone())
+        .limit(req.limit)
+        .sort(req.sort.as_ref().map(|x| x.clone()))
+        .skip(req.skip)
         .build();
 
     let mut cursor = collection
-        .find(read_options.filter.clone(), find_options)
+        .find(req.filter.as_ref().map(|x| x.clone()), find_options)
         .await?;
 
     let mut results = Vec::new();
@@ -285,7 +282,7 @@ async fn query_objects(db: &Database, req: &Operation) -> Result<Vec<bson::Docum
     while let Some(result) = cursor.next().await {
         match result {
             Ok(doc) => {
-                let parsed = parse_document(&doc, schema);
+                let parsed = parse_document(&doc, &schema);
                 results.push(parsed);
             }
             Err(err) => {
@@ -309,94 +306,103 @@ async fn query_objects(db: &Database, req: &Operation) -> Result<Vec<bson::Docum
 async fn join_pointers(
     db: &mongodb::Database,
     parent: Document,
-    req: &Operation,
+    req: &FindRequest,
+    ctx: &Context,
 ) -> Result<Document, Error> {
-    let read_options = req.read_options.unwrap_or(ReadOptions::new());
-    let schema = match req.cache.get_schema(&req.class_name) {
+    let schema = match ctx.cache.get_schema(&ctx.class) {
         Some(schema) => schema,
-        None => return Ok(parent)
+        None => return Ok(parent),
     };
 
-    let joins: Vec<Join> = read_options
+    let joins: Vec<Join> = req
         .include
         .iter()
         .filter_map(|field| schema.fields.get(field))
         .filter(|field| field.target_type.is_some())
         .map(|field| Join {
-            field_key: field.name.clone(),
-            target_type: field.target_type.clone().unwrap(),
-            filters: None,
+            pointer_key: field.name.clone(),
+            pointer_type: field.target_type.clone().unwrap(),
+            options: FindRequest {
+                include: vec![],
+                filter: None,
+                join: vec![],
+                limit: None,
+                skip: None,
+                sort: None,
+            },
         })
-        .chain(read_options
-            .join
-            .iter()
-            .filter_map(|j| schema.fields.get(&j.field_key).map(|s| (j, s)))
-            .filter(|(j, s)| s.target_type.is_some())
-            .filter(|(j, s)| j.target_type == s.target_type.unwrap()))
+        .chain(vec![])
+        // .chain(req
+        //     .join
+        //     .iter()
+        //     .filter_map(|j| schema.fields.get(&j.pointer_key).map(|s| (j, s)))
+        //     .filter(|(j, s)| s.target_type.is_some())
+        //     .filter(|(j, s)| j.pointer_type == s.target_type.unwrap())
+        //     .map(|(j, s)| j))
         .collect();
 
     let futures = joins
         .iter()
-        .map(|join| join_pointer(db, join, &parent, schema, req));
+        .map(|join| join_pointer(db, join, &parent, &schema, req, ctx));
 
-    match join_all(futures).await.iter().filter_map(|x| x.err()).nth(0) {
+    match join_all(futures)
+        .await
+        .into_iter()
+        .filter_map(|x| x.err())
+        .nth(0)
+    {
         Some(err) => Err(err),
-        None => Ok(parent)
+        None => Ok(parent),
     }
 }
 
 async fn join_pointer(
     db: &mongodb::Database,
-    join: Join,
+    join: &Join,
     parent: &Document,
     source_schema: &Schema,
-    req: &Operation,
-) -> Result<(), Error> {
-    debug!(
-        "Joining pointer to {} for key {}",
-        join.target_type, join.field_key
-    );
-
-    match field.field_type {
-        FieldType::Pointer => {
-            debug!("Fetching pointer for {FindOptions}", join.field_key);
-            let empty = doc! {};
-            let id = parent
-                .get_document(&join.field_key)
-                .unwrap_or(&empty)
-                .get_str("objectId")
-                .unwrap_or("");
-            if id == "" {
-                return None;
-            }
-            let opts =  {
-                filter: join.filters.clone().map(|mut filters| {
-                    filters.insert("_id", id);
-                    filters
-                }),
-                limit: Some(1),
-                skip: None,
-                sort: None,
-                join: Vec::new(),
-                include: Vec::new(),
-            };
-            match find_objects(db, target_type.as_str(), &opts, cache).await {
-                Ok(mut results) => {
-                    debug!(
-                        "Joined pointer: {} = {} #{}, {}",
-                        join.field_key,
-                        join.target_type,
-                        id,
-                        results.len()
-                    );
-                    results.pop().map(|x| (join.field_key.clone(), x))
-                }
-                Err(e) => {
-                    error!("Could not join pointer: {}", e.to_string());
-                    None
-                }
-            }
+    req: &FindRequest,
+    ctx: &Context,
+) -> Result<Document, Error> {
+    debug!("Fetching pointer for {}", join.pointer_key);
+    let empty = doc! {};
+    let id = parent
+        .get_document(&join.pointer_key)
+        .unwrap_or(&empty)
+        .get_str("objectId")
+        .unwrap_or("");
+    if id == "" {
+        return Ok(doc! {});
+    }
+    let req = FindRequest {
+        filter: None,
+        limit: Some(1),
+        skip: None,
+        sort: None,
+        join: vec![],
+        include: vec![],
+    };
+    let ctx = &Context {
+        class: join.pointer_type.clone(),
+        user: ctx.user.clone(),
+        db: ctx.db.clone(),
+        cache: ctx.cache.clone(),
+    };
+    match query_objects(db, &req, &ctx).await {
+        Ok(mut results) => {
+            debug!(
+                "Joined pointer: {} = {} #{}, {}",
+                join.pointer_key,
+                join.pointer_type,
+                id,
+                results.len()
+            );
+            results.pop().map(|x| (join.pointer_key.clone(), x));
+            Ok(doc! {})
         }
-        _ => None,
+        Err(e) => {
+            error!("Could not join pointer: {}", e.to_string());
+            Ok(doc! {})
+        }
     }
 }

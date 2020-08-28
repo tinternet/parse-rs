@@ -1,4 +1,5 @@
-use std::sync::{RwLock};
+use std::sync::{RwLock, RwLockReadGuard, Arc};
+use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::collections::HashMap;
 use crate::schema;
@@ -22,9 +23,9 @@ impl AppCache {
         }
     }
 
-    pub fn get_schema(&self, class_name: &str) -> Option<&schema::Schema> {
+    pub fn get_schema(&self, class_name: &str) -> Option<schema::Schema> {
         let schema = self.schema.read().expect("RwLock poisoned");
         let value = schema.get(class_name);
-        value
+        value.map(|x| x.clone())
     }
 }

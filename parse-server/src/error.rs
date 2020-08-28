@@ -1,5 +1,6 @@
 use actix_web::HttpResponse;
 
+#[derive(Clone)]
 pub enum Error {
     Internal(String),
     NotFound(String),

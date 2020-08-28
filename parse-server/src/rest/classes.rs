@@ -1,62 +1,30 @@
-use actix_web::{get, post, web, HttpRequest, HttpResponse};
-use bson::{doc, Bson, Document};
-
-use serde::Deserialize;
-use std::convert::TryFrom;
-use std::sync::atomic::Ordering;
+use actix_web::{post, web, HttpRequest, HttpResponse};
+use bson::{Bson, Document, doc};
 
 use crate::cache::AppCache;
-// use crate::database::Database;
-// use crate::document::{DocumentRepository, FindOptions, Join};
+use crate::database::DbAdapter;
 use crate::error::Error;
-// use crate::schema::SchemaRepository;
-// use crate::auth::Auth;
-use crate::read::read;
-use crate::write::write;
-use crate::operation::{execute, Operation, OperationType};
+use crate::operation::{execute, Context, FindRequest, Join, Request};
+use crate::user::User;
 
-#[derive(Deserialize)]
-struct Request {
-    #[serde(rename(deserialize = "_ApplicationId"))]
-    application_id: String,
-
-    #[serde(rename(deserialize = "_ClientVersion"))]
-    client_version: String,
-    #[serde(rename(deserialize = "_InstallationId"))]
-    installation_id: String,
-    #[serde(rename(deserialize = "_method"))]
-    method: Option<String>,
-    #[serde(rename(deserialize = "where"))]
-    filter: Option<serde_json::Value>,
-
-    include: Option<String>,
-    limit: Option<i64>,
-    skip: Option<i64>,
-    order: Option<String>,
-}
-
-const MASTER_ONLY: &'static [&'static str] = &[
-    "JobStatus",
-    "PushStatus",
-    "Hooks",
-    "GlobalConfig",
-    "JobSchedule",
-    "Idempotency",
-];
-
-fn parse_sort(order: String) -> Document {
-    if &order[0..1] == "-" {
-        doc! {
-            &order[1..]: -1
-        }
+fn parse_sort(payload: &Document) -> Option<Document> {
+    let order = payload.get("order").and_then(|x| x.as_str()).unwrap_or("");
+    if order == "" {
+        None
+    } else if &order[0..1] == "-" && &order[0..1] != "" {
+        let mut doc = doc!{};
+        doc.insert(&order[1..], -1);
+        Some(doc)
+    } else if &order[0..1] != "" {
+        let mut doc = doc!{};
+        doc.insert(order, 1);
+        Some(doc)
     } else {
-        doc! {
-            &order: 1
-        }
+        None
     }
 }
 
-fn map_filters(key: &String, value: &Document) -> (String, Bson) {
+fn map_filter(key: &String, value: &Document) -> (String, Bson) {
     let mut new_value = value.clone();
     let mut has_direct_constraint = false;
     let mut has_operator_constraint = false;
@@ -89,87 +57,89 @@ fn parse_filters(filter: &Document) -> Option<Document> {
     let filters = filter
         .into_iter()
         .map(|(key, value)| match value {
-            Bson::Document(value) => map_filters(key, value),
+            Bson::Document(value) => map_filter(key, value),
             _ => (key.clone(), value.clone()),
         })
-        .fold(doc! {}, |mut doc, (key, value)| {
+        .fold(doc!{}, |mut doc, (key, value)| {
             doc.insert(key, value);
             doc
         });
     Some(filters)
 }
 
-fn parse_joins(filter: &Document) -> Vec<Result<Join, Error>> {
-    filter
-        .iter()
-        .filter_map(|(key, value)| value.as_document())
-        .filter(|doc| doc.contains_key("$select"))
-        .map(|doc| {
-            let empty = doc! {};
-            let select = doc.get_document("$select").unwrap_or(&empty);
-            let key = select.get_str("key").unwrap_or("");
-            let query = select.get_document("query").unwrap_or(&empty);
-            let class_name = query.get_str("className").unwrap_or("");
-            let filter = query.get_document("where");
+fn map_join(doc: &Document) -> Result<Join, Error> {
+    let key = doc.get("key").and_then(|x| x.as_str()).unwrap_or("");
+    let empty = doc!{};
+    let query = doc.get_document("key").unwrap_or(&empty);
+    let class_name = query.get_str("className").unwrap_or("");
+    let filter = query.get_document("where");
 
-            if key == "" || class_name == "" {
-                return Err(Error::BadFormat(format!("Improper usage of $select")));
-            }
-
-            Ok(Join {
-                field_key: String::from(key),
-                target_type: String::from(class_name),
-                filters: filter.ok().map(|f| f.clone()),
-            })
-        })
-        .collect()
-}
-
-fn check_role_security(method: &str, class_name: &str, auth: &Auth) -> Result<(), Error> {
-    if class_name == "_Installation" && !auth.is_master {
-        if method == "delete" || method == "find" {
-            let message = format!("Clients aren't allowed to perform the {} operation on the installation collection.", method);
-            error!("{}", message);
-            return Err(Error::Forbidden(message));
-        }
-    } //all volatileClasses are masterKey only
-
-    if MASTER_ONLY.iter().find(|x| **x == class_name).is_some() && !auth.is_master {
-        let message = format!(
-            "Clients aren't allowed to perform the {} operation on the {} collection.",
-            method, class_name
-        );
-        error!("{}", message);
-        return Err(Error::Forbidden(message));
-    } // readOnly masterKey is not allowed
-
-    if auth.is_read_only && (method == "delete" || method == "create" || method == "update") {
-        let message = format!(
-            "read-only masterKey isn't allowed to perform the {} operation.",
-            method
-        );
-        error!("{}", message);
-        return Err(Error::Forbidden(message));
+    if key == "" || class_name == "" {
+        return Err(Error::BadFormat(format!("Improper usage of $select")));
     }
 
-    Ok(())
+    Ok(Join {
+        pointer_key: String::from(key),
+        pointer_type: String::from(class_name),
+        options: FindRequest {
+            include: vec![],
+            filter: None,
+            limit: Some(1),
+            skip: None,
+            sort: None,
+            join: vec![],
+        },
+    })
 }
 
-fn parse_auth(request: &Request) -> Auth {
-    Auth{
-        application_id: request.application_id,
-        installation_id: request.installation_id,
+fn parse_joins(filter: &Document) -> Result<Vec<Join>, Error> {
+    let mut result = Vec::new();
+    let empty = doc!{};
+    for join in filter
+        .iter()
+        .filter_map(|(_, value)| value.as_document())
+        .filter_map(|doc| doc.get_document("$select").ok())
+        .map(map_join)
+    {
+        match join {
+            Ok(join) => {
+                result.push(join);
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        }
+    }
+    Ok(result)
+}
+
+fn parse_user(payload: &Document) -> User {
+    User {
+        id: None,
+        application_id: payload.get_str("_ApplicationId").ok().map(|x| x.to_string()),
+        installation_id: payload.get_str("_InstallationId").ok().map(|x| x.to_string()),
         is_master: false,
         is_read_only: false,
         user: None,
-        user_roles: Vec::new()
+        user_roles: vec![],
+        client_sdk: payload.get_str("_ClientVersion").ok().map(|x| x.to_string()),
     }
 }
 
+fn parse_find_request(payload: &Document) -> Result<Request, Error> {
+    Ok(Request::Find(FindRequest {
+        filter: payload.get_document("where").ok().map(|x| x.clone()),
+        include: payload.get_str("include").unwrap_or("").split(",").map(|x| x.to_string()).collect(),
+        limit: payload.get_i64("limit").ok().map(|x| x.clone()),
+        skip: payload.get_i64("skip").ok().map(|x| x.clone()),
+        sort: parse_sort(&payload),
+        join: parse_joins(&payload)?,
+    }))
+}
 
 #[post("/parse/classes/{class_name}")]
 pub async fn query_documents(
-    db: web::Data<Database>,
+    db: web::Data<DbAdapter>,
     cache: web::Data<AppCache>,
     payload: String,
     _req: HttpRequest,
@@ -177,9 +147,8 @@ pub async fn query_documents(
 ) -> HttpResponse {
     trace!("REST message IN: {}", &payload);
 
-    // Try to parse request
-    let request = match serde_json::from_str::<Request>(&payload) {
-        Ok(request) => request,
+    let payload = match serde_json::from_str::<Document>(&payload) {
+        Ok(map) => map,
         Err(e) => {
             let message = format!("Could not parse json request: {}", e.to_string());
             error!("{}", &message);
@@ -187,41 +156,61 @@ pub async fn query_documents(
         }
     };
 
-    let allow_client_class_creation = true;
-    let is_master = false;
-    let is_system_class = false;
-    let class_name = class_name.to_string();
+    let method = payload.get_str("_method").unwrap_or("");
 
-    let auth = parse_auth(&request);
-    let operation = match request.method {
-        Some(value) => OperationType::Find,
-        None => OperationType::Create
-    };
-
-    let query = request.filter.map(|x| {
-        match bson::Bson::try_from(x) {
-            Ok(filter) => filter,
-            Err(err) => {
-                let message = format!("Could not parse filters: {}", err.to_string());
-                error!("{}", &message);
-                doc!{}
-                // TODO:
-                // return Error::BadFormat(message).to_http_response();
+    match method {
+        "GET" => {
+            let context = Context {
+                class: class_name.to_string(),
+                db: db.into_inner(),
+                cache: cache.into_inner(),
+                user: parse_user(&payload),
+            };
+            let request = match parse_find_request(&payload) {
+                Ok(request) => request,
+                Err(err) => return err.to_http_response(),
+            };
+            match execute(request, context).await {
+                Ok(result) => HttpResponse::Ok().json(result),
+                Err(err) => err.to_http_response(),
             }
         }
-    });
-    
-    let operation = Operation{
-        auth: parse_auth(&request),
-        client_sdk: &request.client_version,
-        class_name: &class_name,
-        operation: operation,
-        db: db.into_inner(),
-        cache: cache.into_inner(),
-        query: query
-    };
+        _ => Error::BadFormat("".to_string()).to_http_response(),
+    }
 
-    execute(operation).await?
+    // let allow_client_class_creation = true;
+    // let is_master = false;
+    // let is_system_class = false;
+    // let class_name = class_name.to_string();
+    // let auth = parse_auth(&request);
+    // let operation = match request.method {
+    //     Some(value) => OperationType::Find,
+    //     None => OperationType::Create
+    // };
+
+    // let query = request.filter.map(|x| {
+    //     match bson::Bson::try_from(x) {
+    //         Ok(filter) => filter,
+    //         Err(err) => {
+    //             let message = format!("Could not parse filters: {}", err.to_string());
+    //             error!("{}", &message);
+    //             doc!{}
+    //             // TODO:
+    //             // return Error::BadFormat(message).to_http_response();
+    //         }
+    //     }
+    // });
+    // let operation = Operation{
+    //     auth: parse_auth(&request),
+    //     client_sdk: &request.client_version,
+    //     class_name: &class_name,
+    //     operation: operation,
+    //     db: db.into_inner(),
+    //     cache: cache.into_inner(),
+    //     query: query
+    // };
+
+    // execute(operation).await?
 
     // match method {
     //     "find" => {
@@ -248,37 +237,6 @@ pub async fn query_documents(
     //         }
     //     }
     // }
-
-    
-
-    match check_role_security(method, &class_name, &auth) {
-        Ok(()) => {},
-        Err(e) => return e.to_http_response()
-    }
-
-    
-
-    // Validate class creation
-    if !allow_client_class_creation
-        && !is_master
-        && !is_system_class
-        && !schema.contains_key(&class_name)
-    {
-        let message = format!(
-            "This user is not allowed to access non-existent class: {}",
-            class_name
-        );
-        return Error::Forbidden(message).to_http_response();
-    }
-
-    if !schema.contains_key(&class_name) {
-        let results: Vec<String> = Vec::new();
-        return HttpResponse::Ok().json(doc! {
-            "results": results
-        });
-    }
-
-    
 
     // if request.method != "GET" {
     //     match check_role_security("create", &class_name) {
@@ -388,3 +346,8 @@ pub async fn query_documents(
     //     }
     // }
 }
+
+// #[get("/parse/classes/{class_name}")]
+// async fn asd() {
+
+// }

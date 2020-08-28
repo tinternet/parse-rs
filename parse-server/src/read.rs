@@ -1,8 +1,5 @@
 use crate::error::Error;
-use crate::request::ReadRequest;
-// use crate::schema::SchemaCache;
-use crate::util;
-// use bson::Document;
+use crate::operation::{Context, Request};
 
 // TODO: rewrite to rust
 async fn redirect_class_name_for_key() -> Result<(), Error> {
@@ -193,18 +190,18 @@ async fn redirect_class_name_for_key() -> Result<(), Error> {
     //   return promise;
 }
 
-async fn validate_class_creation<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
+async fn validate_class_creation(req: &Request, ctx: &Context) -> Result<(), Error> {
     let allow_client_class_creation = true;
     let is_system_class = false;
     // Validate class creation
     if !allow_client_class_creation
-        && !req.auth.is_master
+        && !ctx.user.is_master
         && !is_system_class
-        && !req.schema.contains_key(req.class_name)
+        && ctx.cache.get_schema(&ctx.class).is_none()
     {
         let message = format!(
             "This user is not allowed to access non-existent class: {}",
-            req.class_name
+            ctx.class
         );
         Err(Error::Forbidden(message))
     } else {
@@ -212,12 +209,12 @@ async fn validate_class_creation<'a>(req: &'a ReadRequest<'a>) -> Result<(), Err
     }
 }
 
-async fn replace_select<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
-    if req.class_name != "_Session" {
+async fn replace_select(req: &Request, ctx: &Context) -> Result<(), Error> {
+    if ctx.class != "_Session" {
         return Ok(());
     }
 
-    if req.auth.user.is_none() && !req.auth.is_master {
+    if ctx.user.id.is_none() && !ctx.user.is_master {
         // TODO: map error
         return Err(Error::Forbidden("Session token required".to_string()));
         //   throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'Session
@@ -277,8 +274,8 @@ async fn replace_select<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
     Ok(())
 }
 
-async fn replace_dont_select<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
-    if req.class_name != "_User" {
+async fn replace_dont_select(req: &Request, ctx: &Context) -> Result<(), Error> {
+    if ctx.class != "_User" {
         return Ok(());
     }
 
@@ -320,7 +317,7 @@ async fn replace_dont_select<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> 
     //   throw new Parse.Error(Parse.Error.UNSUPPORTED_SERVICE, 'This authentication method is unsupported.');
 }
 
-async fn replace_in_query<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
+async fn replace_in_query(req: &Request, ctx: &Context) -> Result<(), Error> {
     Ok(())
 }
 
@@ -332,11 +329,11 @@ async fn handle_include_all() {}
 
 async fn handle_exclude_keys() {}
 
-async fn run_find<'a>(req: &'a ReadRequest<'a>) {
-
+async fn run_find(req: &Request, ctx: &Context) -> Result<(), Error> {
+    Ok(())
 }
 
-async fn run_count<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
+async fn run_count(req: &Request) -> Result<(), Error> {
     // if req.class_name != "_Session" || req.query.is_some() {
     //     return Ok(());
     // }
@@ -358,7 +355,7 @@ async fn run_count<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
 
 async fn handle_include() {}
 
-async fn run_after_find_trigger<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
+async fn run_after_find_trigger(req: &Request) -> Result<(), Error> {
     // if req.class_name != "_User" {
     //     return Ok(());
     //   } // Don't generate session for updating user (this.query is set) unless authData exists
@@ -388,26 +385,26 @@ async fn handle_followup() {}
 
 async fn run_after_save_trigger() {}
 
-// async fn clean_user_auth_data(req: ReadRequest<'a>, doc: &Document) -> Document {
+// async fn clean_user_auth_data(req: ReadRequest, doc: &Document) -> Document {
 
 // }
 
-pub async fn read<'a>(req: &'a ReadRequest<'a>) -> Result<(), Error> {
+pub async fn read(req: Request, ctx: Context) -> Result<(), Error> {
     // let acl = util::get_acl(request).await?; // TODO
     redirect_class_name_for_key().await?; // TODO
-    validate_class_creation(req).await?;
-    replace_select(req).await?; // TODO
-    replace_dont_select(req).await?; // TODO
-    replace_in_query(req).await?; // TODO
+    validate_class_creation(&req, &ctx).await?;
+    replace_select(&req, &ctx).await?; // TODO
+    replace_dont_select(&req, &ctx).await?; // TODO
+    replace_in_query(&req, &ctx).await?; // TODO
     // replace_not_query().await?; // TODO
     // replace_equality().await?; // TODO
 
     // handle_include_all().await?;
     // handle_exclude_keys().await?;
-    // run_find().await?;
-    run_count(req).await?;
+    run_find(&req, &ctx).await?;
+    run_count(&req).await?;
     // handle_include().await?;
-    run_after_find_trigger(req).await?;
+    run_after_find_trigger(&req).await?;
     Ok(())
 }
   

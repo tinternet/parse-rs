@@ -1,18 +1,19 @@
 use crate::cache::AppCache;
 use crate::constants::{MASTER_ONLY_ACCESS, SYSTEM_CLASSES};
-use crate::database::Adapter;
+use crate::database::DbAdapter;
 use crate::error::Error;
 use crate::user::User;
-use bson::Document;
+use crate::read::read;
+use crate::write::write;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use bson::Document;
 
-pub struct Operation {
+pub struct Context {
     pub class: String,
     pub user: User,
-    pub db: Arc<Adapter>,
-    pub cache: Arc<AppCache>,
-    pub request: Request,
+    pub db: Arc<DbAdapter>,
+    pub cache: Arc<AppCache>
 }
 
 pub enum Request {
@@ -29,6 +30,7 @@ pub struct GetRequest {
 }
 
 pub struct FindRequest {
+    pub include: Vec<String>,
     pub filter: Option<Document>,
     pub limit: Option<i64>,
     pub skip: Option<i64>,
@@ -46,54 +48,50 @@ pub struct UpdateRequest {
 }
 
 pub struct DeleteRequest {
-    pub user: User,
-    pub db: Arc<Adapter>,
-    pub cache: Arc<AppCache>,
     pub objectId: String,
 }
 
 pub struct Join {
     pub pointer_key: String,
     pub pointer_type: String,
-    pub objectId: String,
-    pub options: FindOptions,
+    pub options: FindRequest,
 }
 
-pub struct Relation {
+pub struct Relation { 
     pub relation_key: String,
     pub relation_type: String,
     pub filters: Option<Document>,
 }
 
 // TODO: fix error handling
-async fn fetch_schema(req: &Operation) -> Result<(), Error> {
-    if req.cache.schema_loaded.load(Ordering::Relaxed) {
+async fn fetch_schema(ctx: &Context) -> Result<(), Error> {
+    if ctx.cache.schema_loaded.load(Ordering::Relaxed) {
         info!("Using cached schema!");
         return Ok(());
     }
 
     info!("Loading schema...");
-    let schema = req.db.get_schema().await?;
+    let schema = ctx.db.get_schema().await?;
     info!("Schema loaded! count: {}", schema.len());
 
-    *req.cache.schema.write().expect("RwLock is poisoned") = schema;
-    req.cache.schema_loaded.store(true, Ordering::Relaxed);
+    *ctx.cache.schema.write().expect("RwLock is poisoned") = schema;
+    ctx.cache.schema_loaded.store(true, Ordering::Relaxed);
 
     Ok(())
 }
 
 // TODO: fix error handling
-fn validate_class_creation(req: &Operation) -> Result<(), Error> {
+fn validate_class_creation(ctx: &Context) -> Result<(), Error> {
     let allow_client_class_creation = false;
 
     if !allow_client_class_creation
-        && !req.user.is_master
-        && !SYSTEM_CLASSES.contains(&req.class)
-        && req.cache.get_schema(&req.class).is_none()
+        && !ctx.user.is_master
+        && !SYSTEM_CLASSES.contains(ctx.class.as_str())
+        && ctx.cache.get_schema(&ctx.class).is_none()
     {
         let message = format!(
             "This user is not allowed to access non-existent class: {}",
-            req.class
+            ctx.class
         );
         Err(Error::Forbidden(message))
     } else {
@@ -102,11 +100,11 @@ fn validate_class_creation(req: &Operation) -> Result<(), Error> {
 }
 
 // TODO: fix error handling
-fn enforce_role_security(req: &Operation) -> Result<(), Error> {
-    if req.class == "_Installation" && !req.user.is_master {
-        match req.request {
+fn enforce_role_security(req: &Request, ctx: &Context) -> Result<(), Error> {
+    if ctx.class == "_Installation" && !ctx.user.is_master {
+        match req {
             Request::Delete(_) | Request::Find(_) => {
-                let message = format!("Clients aren't allowed to perform the {} operation on the installation collection.", "req.request");
+                let message = format!("Clients aren't allowed to perform the {} operation on the installation collection.", "ctx.request");
                 error!("{}", message);
                 return Err(Error::Forbidden(message));
             }
@@ -114,18 +112,18 @@ fn enforce_role_security(req: &Operation) -> Result<(), Error> {
         }
     }
 
-    if !req.user.is_master && MASTER_ONLY_ACCESS.contains(&req.class)  {
+    if !ctx.user.is_master && MASTER_ONLY_ACCESS.contains(ctx.class.as_str())  {
         let message = format!(
             "Clients aren't allowed to perform the {} operation on the {} collection.",
-            "req.operation", req.class
+            "ctx.operation", ctx.class
         );
         error!("{}", message);
         return Err(Error::Forbidden(message));
     }
 
-    match req.request {
+    match req {
         Request::Delete(_) | Request::Create(_) | Request::Update(_) => {
-            if req.user.is_read_only {
+            if ctx.user.is_read_only {
                 let message = format!(
                     "read-only masterKey isn't allowed to perform the {} operation.",
                     "req.operation"
@@ -140,17 +138,17 @@ fn enforce_role_security(req: &Operation) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn execute<T>(op: &Operation<T>) -> Result<(), Error> {
-    info!("Executing read for {}", op.class);
-    fetch_schema(op).await?;
-    validate_class_creation(op)?;
-    enforce_role_security(op)?;
+pub async fn execute(req: Request, ctx: Context) -> Result<(), Error> {
+    info!("Executing read for {}", ctx.class);
+    fetch_schema(&ctx).await?;
+    validate_class_creation(&ctx)?;
+    enforce_role_security(&req, &ctx)?;
 
-    match op.request {
-        Request::Get(_) => crate::read::read(op).await,
-        Request::Find(_) => crate::read::read(op).await,
-        Request::Create(_) => crate::read::read(op).await,
-        Request::Update(_) => crate::read::write(op).await,
-        Request::Delete(_) => crate::read::write(op).await,
+    match req {
+        Request::Get(_) => read(req, ctx).await,
+        Request::Find(_) => read(req, ctx).await,
+        Request::Create(_) => read(req, ctx).await,
+        Request::Update(_) => write(req, ctx).await,
+        Request::Delete(_) => write(req, ctx).await,
     }
 }

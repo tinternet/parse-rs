@@ -1,8 +1,5 @@
 use crate::error::Error;
-// use crate::request::WriteRequest;
-// use crate::schema::SchemaCache;
-use crate::util;
-use bson::Document;
+use crate::operation::{Context, Request};
 
 // TODO: rewrite to rust
 async fn handle_installation() -> Result<(), Error> {
@@ -193,12 +190,12 @@ async fn handle_installation() -> Result<(), Error> {
     //   return promise;
 }
 
-async fn handle_session(req: &WriteRequest) -> Result<(), Error> {
-    if req.class_name != "_Session" {
+async fn handle_session(req: &Request, ctx: &Context) -> Result<(), Error> {
+    if ctx.class != "_Session" {
         return Ok(());
     }
 
-    if req.auth.user.is_none() && !req.auth.is_master {
+    if ctx.user.id.is_none() && !ctx.user.is_master {
         // TODO: map error
         return Err(Error::Forbidden("Session token required".to_string()));
         //   throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'Session
@@ -210,21 +207,21 @@ async fn handle_session(req: &WriteRequest) -> Result<(), Error> {
     // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME, 'Cannot set ' + 'ACL on a Session.');
     // }
 
-    if req.query.is_some() {
-        if !req.auth.is_master && req.auth.user.is_some() {
-            let userId = util::get_str("user.objectId", req.data).unwrap_or("");
-            if userId != req.auth.user.as_ref().unwrap().id {
-                return Err(Error::Internal("".to_string()));
-                // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME);
-            }
-        } else if req.data.contains_key("installationId") {
-            return Err(Error::Internal("".to_string()));
-        // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME);
-        } else if req.data.contains_key("sessionToken") {
-            return Err(Error::Internal("".to_string()));
-            // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME);
-        }
-    }
+    // if req.query.is_some() {
+    //     if !req.auth.is_master && req.auth.user.is_some() {
+    //         let userId = util::get_str("user.objectId", req.data).unwrap_or("");
+    //         if userId != req.auth.user.as_ref().unwrap().id {
+    //             return Err(Error::Internal("".to_string()));
+    //             // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME);
+    //         }
+    //     } else if req.data.contains_key("installationId") {
+    //         return Err(Error::Internal("".to_string()));
+    //     // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME);
+    //     } else if req.data.contains_key("sessionToken") {
+    //         return Err(Error::Internal("".to_string()));
+    //         // throw new Parse.Error(Parse.Error.INVALID_KEY_NAME);
+    //     }
+    // }
     //   if (!this.query && !this.auth.isMaster) {
     //     const additionalSessionData = {};
     //     for (var key in this.data) {
@@ -258,24 +255,24 @@ async fn handle_session(req: &WriteRequest) -> Result<(), Error> {
     Ok(())
 }
 
-async fn validate_auth_data(req: &WriteRequest) -> Result<(), Error> {
-    if req.class_name != "_User" {
-        return Ok(());
-    }
+async fn validate_auth_data(req: &Request, ctx: &Context) -> Result<(), Error> {
+    // if req.class_name != "_User" {
+    //     return Ok(());
+    // }
 
-    if req.query.is_none() && !req.data.contains_key("authData") {
-        let username = req.data.get_str("username").unwrap_or("");
-        let password = req.data.get_str("password").unwrap_or("");
+    // if req.query.is_none() && !req.data.contains_key("authData") {
+    //     let username = req.data.get_str("username").unwrap_or("");
+    //     let password = req.data.get_str("password").unwrap_or("");
 
-        if username == "" {
-            return Err(Error::BadFormat(String::new()));
-            // throw new Parse.Error(Parse.Error.USERNAME_MISSING, 'bad or missing username');
-        }
-        if password == "" {
-            return Err(Error::BadFormat(String::new()));
-            // throw new Parse.Error(Parse.Error.PASSWORD_MISSING, 'password is required');
-        }
-    }
+    //     if username == "" {
+    //         return Err(Error::BadFormat(String::new()));
+    //         // throw new Parse.Error(Parse.Error.USERNAME_MISSING, 'bad or missing username');
+    //     }
+    //     if password == "" {
+    //         return Err(Error::BadFormat(String::new()));
+    //         // throw new Parse.Error(Parse.Error.PASSWORD_MISSING, 'password is required');
+    //     }
+    // }
     //   if (this.data.authData && !Object.keys(this.data.authData).length || !Object.prototype.hasOwnProperty.call(this.data, 'authData')) {
     //     // Handle saving authData to {} or if authData doesn't exist
     //     return;
@@ -301,7 +298,7 @@ async fn validate_auth_data(req: &WriteRequest) -> Result<(), Error> {
     //   throw new Parse.Error(Parse.Error.UNSUPPORTED_SERVICE, 'This authentication method is unsupported.');
 }
 
-async fn run_before_save_trigger(req: &WriteRequest) -> Result<(), Error> {
+async fn run_before_save_trigger(req: &Request, ctx: &Context) -> Result<(), Error> {
     Ok(())
 }
 
@@ -315,18 +312,18 @@ async fn transform_user() {}
 
 async fn expand_files_for_existing_objects() {}
 
-async fn destroy_uplicated_sessions(req: &WriteRequest) -> Result<(), Error> {
-    if req.class_name != "_Session" || req.query.is_some() {
-        return Ok(());
-    }
+async fn destroy_uplicated_sessions(req: &Request, ctx: &Context) -> Result<(), Error> {
+    // if req.class_name != "_Session" || req.query.is_some() {
+    //     return Ok(());
+    // }
 
-    let user = req.data.get_document("user");
-    let installation_id = req.data.get_str("installationId").unwrap_or("");
-    let session_token = req.data.get_str("sessionToken").unwrap_or("");
+    // let user = req.data.get_document("user");
+    // let installation_id = req.data.get_str("installationId").unwrap_or("");
+    // let session_token = req.data.get_str("sessionToken").unwrap_or("");
 
-    if user.is_err() || installation_id == "" {
-        return Ok(());
-    }
+    // if user.is_err() || installation_id == "" {
+    //     return Ok(());
+    // }
     // if !user.object_id {
     //     return Ok(())
     // }
@@ -337,20 +334,20 @@ async fn destroy_uplicated_sessions(req: &WriteRequest) -> Result<(), Error> {
 
 async fn run_database_operation() {}
 
-async fn create_session_token_if_needed(req: &WriteRequest) -> Result<(), Error> {
-    if req.class_name != "_User" {
+async fn create_session_token_if_needed(req: &Request, ctx: &Context) -> Result<(), Error> {
+    if ctx.class != "_User" {
         return Ok(());
       } // Don't generate session for updating user (this.query is set) unless authData exists
     
     
-      if req.query.is_some() && !req.data.contains_key("authData") {
-        return Ok(());
-      } // Don't generate new sessionToken if linking via sessionToken
+    //   if req.query.is_some() && !req.data.contains_key("authData") {
+    //     return Ok(());
+    //   } // Don't generate new sessionToken if linking via sessionToken
     
     
-      if req.auth.user.is_some() && req.data.contains_key("authData") {
-        return Ok(());
-      }
+    //   if req.auth.user.is_some() && req.data.contains_key("authData") {
+    //     return Ok(());
+    //   }
     
     //   if (!this.storage['authProvider'] && // signup call, with
     //   this.config.preventLoginWithUnverifiedEmail && // no login without verification
@@ -371,21 +368,21 @@ async fn run_after_save_trigger() {}
 
 // }
 
-pub async fn write(req: &WriteRequest) -> Result<(), Error> {
+pub async fn write(req: Request, ctx: Context) -> Result<(), Error> {
     // let acl = util::get_acl(request).await?;
     // util::validate_class_creation(request).await?;
     handle_installation().await?;
-    handle_session(req).await?;
-    validate_auth_data(req).await?;
-    run_before_save_trigger(req).await?;
+    handle_session(&req, &ctx).await?;
+    validate_auth_data(&req, &ctx).await?;
+    run_before_save_trigger(&req, &ctx).await?;
     // delete_email_reset_token_if_needed().await?;
     // validate_schema().await?;
-    // set_required_fields_if_needed().await?;
+    // &set_required_fields_if_needed, &ctx().await?;
     // transform_user().await?;
     // expand_files_for_existing_objects().await?;
-    destroy_uplicated_sessions(req).await?;
+    destroy_uplicated_sessions(&req, &ctx).await?;
     // run_database_operation().await?;
-    create_session_token_if_needed(req).await?;
+    create_session_token_if_needed(&req, &ctx).await?;
     // handle_followup().await?;
     // run_after_save_trigger().await?;
     // let response = clean_user_auth_data(doc!{}).await?;

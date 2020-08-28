@@ -5,7 +5,7 @@ mod mongo;
 mod postgres;
 
 #[cfg(feature = "mongo-db")]
-pub use mongo::Adapter;
+pub use mongo::DbAdapter;
 
 #[cfg(feature = "postgres")]
-pub use postgres::Database;
+pub use postgres::DbAdapter;
